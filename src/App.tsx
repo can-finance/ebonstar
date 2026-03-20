@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 // --- Constants ---
 const GRID_SIZE = 40;
@@ -133,6 +133,13 @@ export default function App() {
   const frameCountRef = useRef(0);
   const nextIdRef = useRef(1);
 
+  // Mobile touch controls
+  const isMobile = useRef(false);
+  const joystickRef = useRef<{ active: boolean; startX: number; startY: number; dx: number; dy: number; touchId: number | null }>({
+    active: false, startX: 0, startY: 0, dx: 0, dy: 0, touchId: null,
+  });
+  const fireRef = useRef<{ active: boolean; touchId: number | null }>({ active: false, touchId: null });
+
   const resetGame = () => {
     setScore(0);
     setLives(MAX_LIVES);
@@ -187,6 +194,9 @@ export default function App() {
     window.addEventListener('resize', handleResize);
     handleResize();
 
+    // Detect mobile
+    isMobile.current = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       keysRef.current[e.code] = true;
       if (e.code === 'Escape' && gameStarted && !gameOver) {
@@ -197,10 +207,58 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
+    // Touch handlers
+    const JOYSTICK_ZONE_WIDTH = 0.5; // left half of screen
+
+    const handleTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        const isLeftSide = t.clientX < window.innerWidth * JOYSTICK_ZONE_WIDTH;
+        if (isLeftSide && joystickRef.current.touchId === null) {
+          joystickRef.current = { active: true, startX: t.clientX, startY: t.clientY, dx: 0, dy: 0, touchId: t.identifier };
+        } else if (!isLeftSide && fireRef.current.touchId === null) {
+          fireRef.current = { active: true, touchId: t.identifier };
+        }
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.identifier === joystickRef.current.touchId) {
+          joystickRef.current.dx = t.clientX - joystickRef.current.startX;
+          joystickRef.current.dy = t.clientY - joystickRef.current.startY;
+        }
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.identifier === joystickRef.current.touchId) {
+          joystickRef.current = { active: false, startX: 0, startY: 0, dx: 0, dy: 0, touchId: null };
+        }
+        if (t.identifier === fireRef.current.touchId) {
+          fireRef.current = { active: false, touchId: null };
+        }
+      }
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: false });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd);
+    window.addEventListener('touchcancel', handleTouchEnd);
+
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchcancel', handleTouchEnd);
     };
   }, [gameStarted, gameOver]);
 
@@ -224,17 +282,40 @@ export default function App() {
       if (bh.x < BLACK_HOLE_RADIUS || bh.x > canvas.width - BLACK_HOLE_RADIUS) bh.vx *= -1;
       if (bh.y < BLACK_HOLE_RADIUS || bh.y > canvas.height - BLACK_HOLE_RADIUS) bh.vy *= -1;
 
-      // 1. Player Input
+      // 1. Player Input (keyboard)
       if (keys['ArrowLeft'] || keys['KeyA']) player.angle -= PLAYER_ROT_SPEED;
       if (keys['ArrowRight'] || keys['KeyD']) player.angle += PLAYER_ROT_SPEED;
-      
+
       player.isMoving = keys['ArrowUp'] || keys['KeyW'];
       if (player.isMoving) {
         player.vx += Math.cos(player.angle) * PLAYER_ACCEL;
         player.vy += Math.sin(player.angle) * PLAYER_ACCEL;
       }
 
-      if (keys['Space'] && frameCountRef.current - (player.lastShot || 0) >= PLAYER_FIRE_RATE) {
+      // 1b. Player Input (touch joystick)
+      const js = joystickRef.current;
+      if (js.active) {
+        const mag = Math.sqrt(js.dx * js.dx + js.dy * js.dy);
+        const DEAD_ZONE = 15;
+        if (mag > DEAD_ZONE) {
+          const targetAngle = Math.atan2(js.dy, js.dx);
+          // Smoothly rotate toward joystick direction
+          let angleDiff = targetAngle - player.angle;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+          player.angle += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), PLAYER_ROT_SPEED * 2);
+
+          // Thrust proportional to joystick distance (capped)
+          const thrust = Math.min(mag / 80, 1) * PLAYER_ACCEL;
+          player.vx += Math.cos(player.angle) * thrust;
+          player.vy += Math.sin(player.angle) * thrust;
+          player.isMoving = true;
+        }
+      }
+
+      // Fire (keyboard or touch)
+      const wantsFire = keys['Space'] || fireRef.current.active;
+      if (wantsFire && frameCountRef.current - (player.lastShot || 0) >= PLAYER_FIRE_RATE) {
         player.lastShot = frameCountRef.current;
         playSound('shoot');
         bulletsRef.current.push({
@@ -555,6 +636,61 @@ export default function App() {
         
         ctx.restore();
       });
+
+      // 5. Draw Touch Controls (only on touch devices)
+      if (isMobile.current) {
+        ctx.save();
+        ctx.globalAlpha = 0.25;
+
+        // Joystick base
+        const jsBaseX = 120;
+        const jsBaseY = canvas.height - 140;
+        const jsRadius = 60;
+        ctx.strokeStyle = '#00ff00';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(jsBaseX, jsBaseY, jsRadius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Joystick thumb
+        const js = joystickRef.current;
+        let thumbX = jsBaseX;
+        let thumbY = jsBaseY;
+        if (js.active) {
+          const mag = Math.sqrt(js.dx * js.dx + js.dy * js.dy);
+          const clamped = Math.min(mag, jsRadius);
+          if (mag > 0) {
+            thumbX = jsBaseX + (js.dx / mag) * clamped;
+            thumbY = jsBaseY + (js.dy / mag) * clamped;
+          }
+        }
+        ctx.fillStyle = '#00ff00';
+        ctx.beginPath();
+        ctx.arc(thumbX, thumbY, 20, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Fire button
+        const fbX = canvas.width - 120;
+        const fbY = canvas.height - 140;
+        const fbRadius = 50;
+        ctx.strokeStyle = fireRef.current.active ? '#ff4400' : '#ff8800';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(fbX, fbY, fbRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        if (fireRef.current.active) {
+          ctx.fillStyle = 'rgba(255, 68, 0, 0.3)';
+          ctx.fill();
+        }
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = '#ff8800';
+        ctx.font = 'bold 18px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('FIRE', fbX, fbY);
+
+        ctx.restore();
+      }
     };
 
     animationFrameId = requestAnimationFrame(update);
@@ -583,7 +719,8 @@ export default function App() {
           <div className="text-center mb-12 space-y-2 text-gray-400">
             <p>W/A/S/D or ARROWS to Move</p>
             <p>SPACE to Shoot</p>
-            <p>Push enemies into the Black Hole</p>
+            <p className="text-gray-500 text-sm mt-2">Mobile: Left side = joystick, Right side = fire</p>
+            <p className="mt-4">Push enemies into the Black Hole</p>
             <p>Bullets don't kill, they PUSH</p>
           </div>
           <button
