@@ -273,8 +273,8 @@ export default function App() {
           id: nextIdRef.current++,
           x: bh.x,
           y: bh.y,
-          vx: Math.cos(spawnAngle) * 4, // Stronger initial burst out of black hole
-          vy: Math.sin(spawnAngle) * 4,
+          vx: Math.cos(spawnAngle) * 6, // Even stronger initial burst
+          vy: Math.sin(spawnAngle) * 6,
           angle: spawnAngle,
           color: colors[Math.floor(Math.random() * colors.length)],
           lastShot: frameCountRef.current,
@@ -284,8 +284,10 @@ export default function App() {
 
       enemiesRef.current.forEach((en) => {
         if (en.isShielded) {
-          // While shielded, just move in the spawn direction
+          // While shielded, boost away from the black hole with extra power
           en.isMoving = true;
+          en.vx += Math.cos(en.angle) * 0.25;
+          en.vy += Math.sin(en.angle) * 0.25;
           return;
         }
 
