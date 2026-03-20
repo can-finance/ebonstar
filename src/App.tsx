@@ -194,8 +194,17 @@ export default function App() {
     window.addEventListener('resize', handleResize);
     handleResize();
 
-    // Detect mobile
-    isMobile.current = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    // Detect mobile — only activate on first touch, not on touch-capable desktops
+    const activateMobile = () => {
+      isMobile.current = true;
+      window.removeEventListener('touchstart', activateMobile);
+    };
+    // Only treat as mobile if screen is narrow (rules out touch laptops)
+    if (window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 1024) {
+      isMobile.current = true;
+    } else {
+      window.addEventListener('touchstart', activateMobile, { once: true });
+    }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       keysRef.current[e.code] = true;
@@ -211,6 +220,8 @@ export default function App() {
     const JOYSTICK_ZONE_WIDTH = 0.5; // left half of screen
 
     const handleTouchStart = (e: TouchEvent) => {
+      // Only intercept touches when game is actively running (not on menu/overlay buttons)
+      if (!gameStarted || gameOver || isPaused) return;
       e.preventDefault();
       for (let i = 0; i < e.changedTouches.length; i++) {
         const t = e.changedTouches[i];
@@ -224,6 +235,7 @@ export default function App() {
     };
 
     const handleTouchMove = (e: TouchEvent) => {
+      if (!joystickRef.current.active) return;
       e.preventDefault();
       for (let i = 0; i < e.changedTouches.length; i++) {
         const t = e.changedTouches[i];
@@ -255,12 +267,13 @@ export default function App() {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('touchstart', activateMobile);
       window.removeEventListener('touchstart', handleTouchStart);
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
       window.removeEventListener('touchcancel', handleTouchEnd);
     };
-  }, [gameStarted, gameOver]);
+  }, [gameStarted, gameOver, isPaused]);
 
   // Game Loop
   useEffect(() => {
