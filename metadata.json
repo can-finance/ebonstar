@@ -1,0 +1,5 @@
+{
+  "name": "Gravity Grid Shooter",
+  "description": "A retro 8-bit top-down shooter where you push enemies into a gravity well using kinetic bullets.",
+  "requestFramePermissions": []
+}
