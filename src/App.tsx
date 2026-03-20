@@ -48,6 +48,7 @@ export default function App() {
   const [lives, setLives] = useState(MAX_LIVES);
   const [gameOver, setGameOver] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
   // Sound System
   const initAudio = () => {
@@ -132,6 +133,27 @@ export default function App() {
   const frameCountRef = useRef(0);
   const nextIdRef = useRef(1);
 
+  const resetGame = () => {
+    setScore(0);
+    setLives(MAX_LIVES);
+    setGameOver(false);
+    setIsPaused(false);
+    enemiesRef.current = [];
+    bulletsRef.current = [];
+    playerRef.current = {
+      id: 0,
+      x: 100,
+      y: 100,
+      vx: 0,
+      vy: 0,
+      angle: -Math.PI / 2,
+      color: '#00ff00',
+      isMoving: false,
+      lastShot: 0,
+    };
+    frameCountRef.current = 0;
+  };
+
   const respawnPlayer = () => {
     playSound('death');
     const player = playerRef.current;
@@ -165,7 +187,12 @@ export default function App() {
     window.addEventListener('resize', handleResize);
     handleResize();
 
-    const handleKeyDown = (e: KeyboardEvent) => (keysRef.current[e.code] = true);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      keysRef.current[e.code] = true;
+      if (e.code === 'Escape' && gameStarted && !gameOver) {
+        setIsPaused((p) => !p);
+      }
+    };
     const handleKeyUp = (e: KeyboardEvent) => (keysRef.current[e.code] = false);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
@@ -175,17 +202,17 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [gameStarted]);
+  }, [gameStarted, gameOver]);
 
   // Game Loop
   useEffect(() => {
-    if (!gameStarted || gameOver) return;
+    if (!gameStarted || gameOver || isPaused) return;
 
     let animationFrameId: number;
 
     const update = () => {
       const canvas = canvasRef.current;
-      if (!canvas) return;
+      if (!canvas || isPaused) return;
 
       const player = playerRef.current;
       const keys = keysRef.current;
@@ -568,6 +595,30 @@ export default function App() {
           >
             START MISSION
           </button>
+        </div>
+      )}
+
+      {isPaused && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-30">
+          <h2 className="text-6xl mb-8 text-[#00ff00]">PAUSED</h2>
+          <div className="flex flex-col gap-4">
+            <button
+              onClick={() => setIsPaused(false)}
+              className="px-8 py-4 border-4 border-[#00ff00] text-[#00ff00] text-2xl hover:bg-[#00ff00] hover:text-black transition-colors"
+            >
+              RESUME
+            </button>
+            <button
+              onClick={() => {
+                resetGame();
+                setGameStarted(false);
+              }}
+              className="px-8 py-4 border-4 border-red-500 text-red-500 text-2xl hover:bg-red-500 hover:text-black transition-colors"
+            >
+              QUIT TO MENU
+            </button>
+          </div>
+          <div className="mt-8 text-gray-400">Press ESC to Resume</div>
         </div>
       )}
 
