@@ -7,18 +7,18 @@ import React, { useEffect, useRef, useState } from 'react';
 
 // --- Constants ---
 const GRID_SIZE = 40;
-const GRAVITY_STRENGTH = 1500;
+const GRAVITY_STRENGTH = 1000; // Slowed down
 const BLACK_HOLE_RADIUS = 30;
 const SHIP_SIZE = 20;
-const BULLET_SPEED = 8;
-const BULLET_LIFETIME = 40; // ~1/4 screen at 60fps
-const PLAYER_ACCEL = 0.12;
-const PLAYER_ROT_SPEED = 0.08;
-const PLAYER_FIRE_RATE = 6; // frames between shots
+const BULLET_SPEED = 6; // Slowed down
+const BULLET_LIFETIME = 50; // Adjusted for slower speed
+const PLAYER_ACCEL = 0.08; // Slowed down
+const PLAYER_ROT_SPEED = 0.06; // Slowed down
+const PLAYER_FIRE_RATE = 8; // Slowed down
 const FRICTION = 0.98;
-const ENEMY_SPAWN_RATE = 120; // frames
-const ENEMY_FIRE_RATE = 180; // frames
-const BLACK_HOLE_SPEED = 0.8;
+const ENEMY_SPAWN_RATE = 180; // Slowed down
+const ENEMY_FIRE_RATE = 240; // Slowed down
+const BLACK_HOLE_SPEED = 0.5; // Slowed down
 const MAX_LIVES = 3;
 
 type Point = { x: number; y: number; vx?: number; vy?: number };
@@ -43,10 +43,73 @@ interface Bullet extends Entity {
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(MAX_LIVES);
   const [gameOver, setGameOver] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
+
+  // Sound System
+  const initAudio = () => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+  };
+
+  const playSound = (type: 'shoot' | 'hit' | 'death' | 'spawn' | 'score') => {
+    if (!audioCtxRef.current) return;
+    const ctx = audioCtxRef.current;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+
+    if (type === 'shoot') {
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(110, now + 0.1);
+      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.1);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    } else if (type === 'hit') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.linearRampToValueAtTime(55, now + 0.2);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.2);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    } else if (type === 'death') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(110, now);
+      osc.frequency.linearRampToValueAtTime(20, now + 0.6);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.6);
+      osc.start(now);
+      osc.stop(now + 0.6);
+    } else if (type === 'spawn') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(110, now);
+      osc.frequency.exponentialRampToValueAtTime(660, now + 0.4);
+      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.4);
+      osc.start(now);
+      osc.stop(now + 0.4);
+    } else if (type === 'score') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.exponentialRampToValueAtTime(1320, now + 0.1);
+      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.1);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    }
+  };
 
   // Game state refs (to avoid re-renders)
   const playerRef = useRef<Entity>({
@@ -70,6 +133,7 @@ export default function App() {
   const nextIdRef = useRef(1);
 
   const respawnPlayer = () => {
+    playSound('death');
     const player = playerRef.current;
     player.x = 100;
     player.y = 100;
@@ -145,6 +209,7 @@ export default function App() {
 
       if (keys['Space'] && frameCountRef.current - (player.lastShot || 0) >= PLAYER_FIRE_RATE) {
         player.lastShot = frameCountRef.current;
+        playSound('shoot');
         bulletsRef.current.push({
           id: nextIdRef.current++,
           x: player.x + Math.cos(player.angle) * SHIP_SIZE,
@@ -205,6 +270,7 @@ export default function App() {
             // Enemy sucked in (only if not shielded)
             enemiesRef.current = enemiesRef.current.filter((en) => en.id !== e.id);
             setScore((s) => s + 100);
+            playSound('score');
           }
         }
 
@@ -239,8 +305,9 @@ export default function App() {
         b.vx += (dx / dist) * force;
         b.vy += (dy / dist) * force;
 
-        // Bullet-Enemy collision (Push)
+        // Bullet-Entity collision (Push)
         if (b.ownerId === player.id) {
+          // Player bullet hitting enemy
           enemiesRef.current.forEach((en) => {
             if (en.isShielded) return; // Shielded enemies can't be pushed
             const edx = en.x - b.x;
@@ -249,6 +316,7 @@ export default function App() {
             if (edist < SHIP_SIZE) {
               en.vx += b.vx * 0.5;
               en.vy += b.vy * 0.5;
+              playSound('hit');
               b.life = 0; // Destroy bullet
             }
           });
@@ -258,7 +326,10 @@ export default function App() {
           const pdy = player.y - b.y;
           const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
           if (pdist < SHIP_SIZE) {
-            respawnPlayer();
+            // PUSH PLAYER instead of killing
+            player.vx += b.vx * 0.8;
+            player.vy += b.vy * 0.8;
+            playSound('hit');
             b.life = 0;
           }
         }
@@ -269,6 +340,7 @@ export default function App() {
       if (frameCountRef.current % ENEMY_SPAWN_RATE === 0) {
         const colors = ['#ff00ff', '#00ffff', '#ffff00', '#ff4400'];
         const spawnAngle = Math.random() * Math.PI * 2;
+        playSound('spawn');
         enemiesRef.current.push({
           id: nextIdRef.current++,
           x: bh.x,
@@ -308,6 +380,7 @@ export default function App() {
         // Enemy shooting (only if not shielded)
         if (!en.isShielded && frameCountRef.current - (en.lastShot || 0) >= ENEMY_FIRE_RATE) {
           en.lastShot = frameCountRef.current;
+          playSound('shoot');
           bulletsRef.current.push({
             id: nextIdRef.current++,
             x: en.x + Math.cos(en.angle) * SHIP_SIZE,
@@ -487,7 +560,10 @@ export default function App() {
             <p>Bullets don't kill, they PUSH</p>
           </div>
           <button
-            onClick={() => setGameStarted(true)}
+            onClick={() => {
+              initAudio();
+              setGameStarted(true);
+            }}
             className="px-8 py-4 border-4 border-[#00ff00] text-[#00ff00] text-2xl hover:bg-[#00ff00] hover:text-black transition-colors"
           >
             START MISSION
@@ -509,8 +585,9 @@ export default function App() {
       )}
 
       <div className="absolute bottom-4 right-4 text-xs text-gray-500">
-        8-BIT KINETIC SHOOTER V1.0
+        8-BIT KINETIC SHOOTER V1.1
       </div>
     </div>
   );
 }
+
