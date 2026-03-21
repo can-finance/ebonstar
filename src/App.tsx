@@ -575,8 +575,8 @@ export default function App() {
     const ws = new WebSocket(getRelayUrl());
     const timeout = setTimeout(() => {
       try { ws.close(); } catch {}
-      setNetworkError('Server not found');
-    }, 3000);
+      setNetworkError('Server not found — it may be waking up, try again in a few seconds');
+    }, 15000);
     ws.onopen = () => {
       clearTimeout(timeout);
       ws.close();
@@ -674,10 +674,10 @@ export default function App() {
     setTimeout(() => {
       if (!gotResponse) {
         setLoadingRooms(false);
-        setNetworkError('Server not responding');
+        setNetworkError('Server not responding — it may be waking up, try again in a few seconds');
         try { ws.close(); } catch {}
       }
-    }, 3000);
+    }, 15000);
   };
 
   // --- Network: Join game ---
@@ -1742,7 +1742,8 @@ export default function App() {
             </>
           ) : !networkError ? (
             <>
-              <p className="text-xl text-gray-400 mb-6">Connecting to server...</p>
+              <p className="text-xl text-gray-400 mb-2">Connecting to server...</p>
+              <p className="text-sm text-gray-600 mb-6">First connection may take up to 30s if server is sleeping</p>
               <button onClick={backToMenu} className="px-8 py-4 border-4 border-red-500 text-red-500 text-2xl hover:bg-red-500 hover:text-black transition-colors">
                 CANCEL
               </button>
