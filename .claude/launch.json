@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "wsl.exe",
+      "runtimeArgs": ["-e", "bash", "-c", "source ~/.nvm/nvm.sh && cd \"$(wslpath -a .)\" && npm run dev"],
+      "port": 3000
+    }
+  ]
+}
