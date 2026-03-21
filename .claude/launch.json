@@ -6,6 +6,12 @@
       "runtimeExecutable": "wsl.exe",
       "runtimeArgs": ["-e", "bash", "-c", "source ~/.nvm/nvm.sh && cd \"$(wslpath -a .)\" && npm run dev"],
       "port": 3000
+    },
+    {
+      "name": "relay",
+      "runtimeExecutable": "wsl.exe",
+      "runtimeArgs": ["-e", "bash", "-c", "source ~/.nvm/nvm.sh && cd \"$(wslpath -a .)\" && npm run server"],
+      "port": 3001
     }
   ]
 }

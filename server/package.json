@@ -1,0 +1,15 @@
+{
+  "name": "gravity-grid-relay",
+  "version": "1.0.0",
+  "description": "WebSocket relay server for Gravity Grid Shooter",
+  "main": "relay.js",
+  "scripts": {
+    "start": "node relay.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

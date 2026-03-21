@@ -26,6 +26,13 @@ export default defineConfig(({mode}) => {
       watch: {
         usePolling: true,
       },
+      proxy: {
+        '/relay': {
+          target: 'ws://localhost:3001',
+          ws: true,
+          rewriteWsOrigin: true,
+        },
+      },
     },
   };
 });
