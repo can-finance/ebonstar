@@ -15,11 +15,13 @@ const GRAVITY_STRENGTH = 800;
 const BLACK_HOLE_RADIUS = 30;
 const SHIP_SIZE = 20;
 const BULLET_SPEED = 5;
-const BULLET_LIFETIME = 55;
+const BULLET_LIFETIME = 9999;
+const MAX_PLAYER_BULLETS = 10;
 const PLAYER_ACCEL = 0.09;
 const PLAYER_MAX_SPEED = 2.5;
 const PLAYER_ROT_SPEED = 0.05;
-const PLAYER_FIRE_RATE = 9;
+const PLAYER_FIRE_RATE = 12;
+const HIT_RADIUS = 28;
 const FRICTION = 0.96;
 const ENEMY_SPAWN_RATE = 300;
 const ENEMY_FIRE_RATE = 280;
@@ -44,6 +46,14 @@ const CONTROLS = [
 
 type Point = { x: number; y: number; vx?: number; vy?: number };
 
+type EnemyType = 'normal' | 'tank' | 'scout';
+
+const ENEMY_TYPE_CONFIG = {
+  normal: { color: '#ff00ff', sizeMult: 1.0, pushResist: 1.0, fuel: 150, rotSpeed: 0.05, boostMult: 1.0, points: 100, fireRateMult: 1.0, spawnWeight: 0.5 },
+  tank: { color: '#ff4400', sizeMult: 1.4, pushResist: 0.4, fuel: 200, rotSpeed: 0.03, boostMult: 0.6, points: 250, fireRateMult: 1.5, spawnWeight: 0.2 },
+  scout: { color: '#00ff88', sizeMult: 0.8, pushResist: 1.5, fuel: 200, rotSpeed: 0.08, boostMult: 1.2, points: 150, fireRateMult: 0.7, spawnWeight: 0.3 },
+} as const;
+
 interface Entity {
   id: number;
   x: number; y: number;
@@ -55,7 +65,8 @@ interface Entity {
   isShielded?: boolean;
   fuel?: number;
   lastHitBy?: number;
-  respawnTimer?: number; // frames remaining until respawn (0 = alive)
+  respawnTimer?: number;
+  enemyType?: EnemyType;
 }
 
 interface Bullet extends Entity {
@@ -457,8 +468,8 @@ export default function App() {
   const enemiesRef = useRef<Entity[]>([]);
   const bulletsRef = useRef<Bullet[]>([]);
   const keysRef = useRef<Record<string, boolean>>({});
-  const blackHoleRef = useRef<Point & { vx: number; vy: number }>({
-    x: 0, y: 0, vx: BLACK_HOLE_SPEED, vy: BLACK_HOLE_SPEED
+  const blackHoleRef = useRef<Point & { vx: number; vy: number; radius: number }>({
+    x: 0, y: 0, vx: BLACK_HOLE_SPEED, vy: BLACK_HOLE_SPEED, radius: BLACK_HOLE_RADIUS
   });
   const frameCountRef = useRef(0);
   const nextIdRef = useRef(1);
@@ -516,6 +527,7 @@ export default function App() {
     bulletsRef.current = [];
     deadPlayersRef.current = new Set();
     playerCountRef.current = numPlayers;
+    blackHoleRef.current.radius = BLACK_HOLE_RADIUS;
 
     playersRef.current = [];
     for (let i = 0; i < numPlayers; i++) {
@@ -554,7 +566,7 @@ export default function App() {
               deadPlayers: Array.from(deadPlayersRef.current),
               enemies: enemiesRef.current.map(serializeEntity),
               bullets: bulletsRef.current.map(serializeBullet),
-              blackHole: { x: bh.x, y: bh.y, vx: bh.vx, vy: bh.vy },
+              blackHole: { x: bh.x, y: bh.y, vx: bh.vx, vy: bh.vy, radius: bh.radius },
               scores: scoresRef.current,
               lives: next,
               gameOver: true,
@@ -1014,7 +1026,7 @@ export default function App() {
       // Black Hole
       ctx.fillStyle = '#000';
       ctx.beginPath();
-      ctx.arc(bh.x, bh.y, BLACK_HOLE_RADIUS, 0, Math.PI * 2);
+      ctx.arc(bh.x, bh.y, bh.radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = '#ff00ff';
       ctx.lineWidth = 2;
@@ -1022,38 +1034,66 @@ export default function App() {
 
       // Ships
       const drawShip = (e: Entity) => {
+        const sizeMult = e.enemyType ? ENEMY_TYPE_CONFIG[e.enemyType].sizeMult : 1.0;
+        const sz = SHIP_SIZE * sizeMult;
         ctx.save();
         ctx.translate(e.x, e.y);
         ctx.rotate(e.angle);
+        // Thrust flame
         if (e.isMoving) {
           ctx.fillStyle = '#ff8800';
           ctx.beginPath();
-          ctx.moveTo(-SHIP_SIZE / 2, -SHIP_SIZE / 4);
-          ctx.lineTo(-SHIP_SIZE - Math.random() * 10, 0);
-          ctx.lineTo(-SHIP_SIZE / 2, SHIP_SIZE / 4);
+          ctx.moveTo(-sz / 2, -sz / 4);
+          ctx.lineTo(-sz - Math.random() * 10, 0);
+          ctx.lineTo(-sz / 2, sz / 4);
           ctx.fill();
         }
         ctx.fillStyle = e.color;
         ctx.beginPath();
-        ctx.moveTo(SHIP_SIZE / 2, 0);
-        ctx.lineTo(-SHIP_SIZE / 2, -SHIP_SIZE / 2);
-        ctx.lineTo(-SHIP_SIZE / 2, SHIP_SIZE / 2);
+        if (e.enemyType === 'tank') {
+          // Wide diamond shape
+          ctx.moveTo(sz / 2, 0);
+          ctx.lineTo(0, -sz / 2);
+          ctx.lineTo(-sz / 2, 0);
+          ctx.lineTo(0, sz / 2);
+        } else if (e.enemyType === 'scout') {
+          // Thin elongated dart
+          ctx.moveTo(sz, 0);
+          ctx.lineTo(-sz / 2, -sz / 3);
+          ctx.lineTo(-sz / 3, 0);
+          ctx.lineTo(-sz / 2, sz / 3);
+        } else {
+          // Normal triangle (players + normal enemies)
+          ctx.moveTo(sz / 2, 0);
+          ctx.lineTo(-sz / 2, -sz / 2);
+          ctx.lineTo(-sz / 2, sz / 2);
+        }
         ctx.closePath();
         ctx.fill();
+        // Shield
         if (e.isShielded) {
           ctx.strokeStyle = '#00ffff';
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.arc(0, 0, SHIP_SIZE * 0.8, 0, Math.PI * 2);
+          ctx.arc(0, 0, sz * 0.8, 0, Math.PI * 2);
           ctx.stroke();
           ctx.fillStyle = 'rgba(0, 255, 255, 0.2)';
           ctx.fill();
         }
+        // Cockpit
         ctx.fillStyle = '#888';
         ctx.beginPath();
-        ctx.moveTo(SHIP_SIZE / 2, 0);
-        ctx.lineTo(0, -SHIP_SIZE / 4);
-        ctx.lineTo(0, SHIP_SIZE / 4);
+        if (e.enemyType === 'tank') {
+          ctx.arc(0, 0, sz * 0.15, 0, Math.PI * 2);
+        } else if (e.enemyType === 'scout') {
+          ctx.moveTo(sz * 0.4, 0);
+          ctx.lineTo(0, -sz * 0.15);
+          ctx.lineTo(0, sz * 0.15);
+        } else {
+          ctx.moveTo(sz / 2, 0);
+          ctx.lineTo(0, -sz / 4);
+          ctx.lineTo(0, sz / 4);
+        }
         ctx.closePath();
         ctx.fill();
         ctx.restore();
@@ -1244,6 +1284,11 @@ export default function App() {
             life: BULLET_LIFETIME,
             ownerId: player.id,
           });
+          // Evict oldest bullet if over cap
+          const myBullets = bulletsRef.current.filter(b => b.ownerId === player.id);
+          if (myBullets.length > MAX_PLAYER_BULLETS) {
+            myBullets[0].life = 0; // kill oldest
+          }
         }
       } else if (networkRoleRef.current === 'host') {
         // Remote player — get input from network
@@ -1283,6 +1328,11 @@ export default function App() {
               life: BULLET_LIFETIME,
               ownerId: player.id,
             });
+            // Evict oldest bullet if over cap
+            const myBullets = bulletsRef.current.filter(b => b.ownerId === player.id);
+            if (myBullets.length > MAX_PLAYER_BULLETS) {
+              myBullets[0].life = 0;
+            }
           }
         }
       }
@@ -1297,8 +1347,8 @@ export default function App() {
       // 0. Update Black Hole
       bh.x += bh.vx;
       bh.y += bh.vy;
-      if (bh.x < BLACK_HOLE_RADIUS || bh.x > WORLD_W - BLACK_HOLE_RADIUS) bh.vx *= -1;
-      if (bh.y < BLACK_HOLE_RADIUS || bh.y > WORLD_H - BLACK_HOLE_RADIUS) bh.vy *= -1;
+      if (bh.x < bh.radius || bh.x > WORLD_W - bh.radius) bh.vx *= -1;
+      if (bh.y < bh.radius || bh.y > WORLD_H - bh.radius) bh.vy *= -1;
 
       // 1. Player Input
       players.forEach((player, idx) => processPlayerInput(player, idx, keys));
@@ -1354,36 +1404,48 @@ export default function App() {
         if (e.y > WORLD_H - SHIP_SIZE / 2) { e.y = WORLD_H - SHIP_SIZE / 2; e.vy *= -1; }
 
         // Black hole collision
-        if (dist < BLACK_HOLE_RADIUS) {
+        if (dist < bh.radius) {
           const playerIdx = players.findIndex(p => p.id === e.id);
           if (playerIdx >= 0) {
             respawnPlayer(playerIdx);
           } else if (!e.isShielded) {
             const lastHitter = (e as Entity).lastHitBy;
+            const enemyT = (e as Entity).enemyType || 'normal';
+            const pts = ENEMY_TYPE_CONFIG[enemyT].points;
             if (lastHitter !== undefined) {
               const hitterIdx = players.findIndex(p => p.id === lastHitter);
               if (hitterIdx >= 0) {
                 setScores((prev) => {
                   const next = [...prev];
-                  next[hitterIdx] = (next[hitterIdx] || 0) + 100;
-                  scoresRef.current = next; // sync ref immediately for broadcast
+                  next[hitterIdx] = (next[hitterIdx] || 0) + pts;
+                  scoresRef.current = next;
                   return next;
                 });
                 floatingTextsRef.current.push({
                   x: bh.x, y: bh.y - 30,
-                  text: '+100',
+                  text: `+${pts}`,
                   color: PLAYER_COLORS[hitterIdx],
                   life: 60,
                 });
               }
+            } else {
+              // No one shot this enemy — show grey 0
+              floatingTextsRef.current.push({
+                x: bh.x, y: bh.y - 30,
+                text: '0',
+                color: '#666666',
+                life: 60,
+              });
             }
             enemiesRef.current = enemiesRef.current.filter((en) => en.id !== e.id);
+            // Black hole grows when it eats an enemy
+            bh.radius += 10;
             playSound('enemyAbsorbed');
             playSound('score');
           }
         }
 
-        if (e.isShielded && dist > BLACK_HOLE_RADIUS * 4.5) {
+        if (e.isShielded && dist > bh.radius * 4.5) {
           e.isShielded = false;
           playSound('shieldBreak');
         }
@@ -1412,9 +1474,10 @@ export default function App() {
             const edx = en.x - b.x;
             const edy = en.y - b.y;
             const edist = Math.sqrt(edx * edx + edy * edy);
-            if (edist < SHIP_SIZE) {
-              en.vx += b.vx * 0.8;
-              en.vy += b.vy * 0.8;
+            if (edist < HIT_RADIUS) {
+              const pushResist = en.enemyType ? ENEMY_TYPE_CONFIG[en.enemyType].pushResist : 1.0;
+              en.vx += b.vx * 1.2 * pushResist;
+              en.vy += b.vy * 1.2 * pushResist;
               en.lastHitBy = b.ownerId;
               playSound('hit');
               b.life = 0;
@@ -1428,9 +1491,9 @@ export default function App() {
               const pdx = player.x - b.x;
               const pdy = player.y - b.y;
               const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
-              if (pdist < SHIP_SIZE) {
-                player.vx += b.vx * 0.8;
-                player.vy += b.vy * 0.8;
+              if (pdist < HIT_RADIUS) {
+                player.vx += b.vx * 1.2;
+                player.vy += b.vy * 1.2;
                 playSound('hit');
                 b.life = 0;
                 break;
@@ -1444,9 +1507,9 @@ export default function App() {
             const pdx = player.x - b.x;
             const pdy = player.y - b.y;
             const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
-            if (pdist < SHIP_SIZE) {
-              player.vx += b.vx * 0.8;
-              player.vy += b.vy * 0.8;
+            if (pdist < HIT_RADIUS) {
+              player.vx += b.vx * 1.2;
+              player.vy += b.vy * 1.2;
               playSound('hit');
               b.life = 0;
               break;
@@ -1458,7 +1521,10 @@ export default function App() {
 
       // 4. Enemy Spawning & AI
       if (frameCountRef.current % ENEMY_SPAWN_RATE === 0 && enemiesRef.current.length < 10) {
-        const colors = ['#ff00ff', '#ffff00', '#ff4400'];
+        // Pick enemy type by weighted random
+        const roll = Math.random();
+        const enemyType: EnemyType = roll < 0.5 ? 'normal' : roll < 0.7 ? 'tank' : 'scout';
+        const cfg = ENEMY_TYPE_CONFIG[enemyType];
         const spawnAngle = Math.random() * Math.PI * 2;
         playSound('spawn');
         enemiesRef.current.push({
@@ -1467,14 +1533,17 @@ export default function App() {
           vx: Math.cos(spawnAngle) * 4.5,
           vy: Math.sin(spawnAngle) * 4.5,
           angle: spawnAngle,
-          color: colors[Math.floor(Math.random() * colors.length)],
+          color: cfg.color,
           lastShot: frameCountRef.current,
           isShielded: true,
-          fuel: 150,
+          fuel: cfg.fuel,
+          enemyType,
         });
       }
 
       enemiesRef.current.forEach((en) => {
+        const cfg = en.enemyType ? ENEMY_TYPE_CONFIG[en.enemyType] : ENEMY_TYPE_CONFIG.normal;
+
         if (en.isShielded) {
           en.isMoving = true;
           en.vx += Math.cos(en.angle) * 0.25;
@@ -1501,47 +1570,75 @@ export default function App() {
         const pbhdist = Math.sqrt(pbhdx * pbhdx + pbhdy * pbhdy);
 
         const fuel = en.fuel ?? 0;
-        const FUEL_MAX = 150;
+        const FUEL_MAX_TYPE = cfg.fuel;
         const FUEL_RECHARGE = 0.2;
-        const BH_DANGER_ZONE = BLACK_HOLE_RADIUS * 6;
-        const BH_FLEE_ZONE = BLACK_HOLE_RADIUS * 4;
+        const BH_DANGER_ZONE = bh.radius * 6;
+        const BH_FLEE_ZONE = bh.radius * 4;
 
         let fuelUsed = 0;
         let desiredAngle = en.angle;
         let wantsBoost = false;
         let boostStrength = 0;
 
-        if (bhdist < BH_FLEE_ZONE && fuel > 5) {
-          desiredAngle = Math.atan2(-bhdy, -bhdx);
-          wantsBoost = true; boostStrength = 0.2; fuelUsed = 3;
-        } else if (bhdist < BH_DANGER_ZONE && fuel > 2) {
-          desiredAngle = Math.atan2(-bhdy, -bhdx);
-          wantsBoost = true; boostStrength = 0.08; fuelUsed = 1;
-        } else if (bhdist < BH_FLEE_ZONE) {
-          desiredAngle = Math.atan2(-bhdy, -bhdx);
-        } else {
-          const idealX = target.x - (pbhdx / (pbhdist || 1)) * 200;
-          const idealY = target.y - (pbhdy / (pbhdist || 1)) * 200;
-          const toIdealX = idealX - en.x;
-          const toIdealY = idealY - en.y;
-          const toIdealDist = Math.sqrt(toIdealX * toIdealX + toIdealY * toIdealY);
+        if (en.enemyType === 'scout') {
+          // Scout AI: fast, keeps distance from player, hit-and-run
+          const KEEP_AWAY_DIST = 400;
+          const playerDist = Math.sqrt(pdx * pdx + pdy * pdy);
 
-          if (toIdealDist > 60 && Math.random() < 0.03 && fuel > 2) {
-            desiredAngle = Math.atan2(toIdealY, toIdealX);
-            wantsBoost = true; boostStrength = 0.18; fuelUsed = 1.5;
-          } else if (Math.random() < 0.01 && fuel > 1) {
-            desiredAngle = Math.atan2(pdy, pdx);
-            wantsBoost = true; boostStrength = 0.15; fuelUsed = 1;
+          if (bhdist < BH_FLEE_ZONE && fuel > 5) {
+            // Too close to BH — flee
+            desiredAngle = Math.atan2(-bhdy, -bhdx);
+            wantsBoost = true; boostStrength = 0.2 * cfg.boostMult; fuelUsed = 3;
+          } else if (playerDist < KEEP_AWAY_DIST && fuel > 2) {
+            // Player too close — flee away from player
+            desiredAngle = Math.atan2(-pdy, -pdx);
+            wantsBoost = true; boostStrength = 0.15 * cfg.boostMult; fuelUsed = 1.2;
+          } else if (bhdist < BH_DANGER_ZONE && fuel > 2) {
+            desiredAngle = Math.atan2(-bhdy, -bhdx);
+            wantsBoost = true; boostStrength = 0.1 * cfg.boostMult; fuelUsed = 1;
           } else {
+            // Safe distance — face player to shoot, occasionally strafe
             desiredAngle = Math.atan2(pdy, pdx);
+            if (Math.random() < 0.05 && fuel > 1) {
+              // Strafe perpendicular for unpredictable movement
+              desiredAngle = Math.atan2(pdy, pdx) + (Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
+              wantsBoost = true; boostStrength = 0.12 * cfg.boostMult; fuelUsed = 0.8;
+            }
+          }
+        } else {
+          // Normal and Tank AI
+          if (bhdist < BH_FLEE_ZONE && fuel > 5) {
+            desiredAngle = Math.atan2(-bhdy, -bhdx);
+            wantsBoost = true; boostStrength = 0.2 * cfg.boostMult; fuelUsed = 3;
+          } else if (bhdist < BH_DANGER_ZONE && fuel > 2) {
+            desiredAngle = Math.atan2(-bhdy, -bhdx);
+            wantsBoost = true; boostStrength = 0.08 * cfg.boostMult; fuelUsed = 1;
+          } else if (bhdist < BH_FLEE_ZONE) {
+            desiredAngle = Math.atan2(-bhdy, -bhdx);
+          } else {
+            const idealX = target.x - (pbhdx / (pbhdist || 1)) * 200;
+            const idealY = target.y - (pbhdy / (pbhdist || 1)) * 200;
+            const toIdealX = idealX - en.x;
+            const toIdealY = idealY - en.y;
+            const toIdealDist = Math.sqrt(toIdealX * toIdealX + toIdealY * toIdealY);
+
+            if (toIdealDist > 60 && Math.random() < 0.03 && fuel > 2) {
+              desiredAngle = Math.atan2(toIdealY, toIdealX);
+              wantsBoost = true; boostStrength = 0.18 * cfg.boostMult; fuelUsed = 1.5;
+            } else if (Math.random() < 0.01 && fuel > 1) {
+              desiredAngle = Math.atan2(pdy, pdx);
+              wantsBoost = true; boostStrength = 0.15 * cfg.boostMult; fuelUsed = 1;
+            } else {
+              desiredAngle = Math.atan2(pdy, pdx);
+            }
           }
         }
 
-        const ENEMY_ROT_SPEED = 0.05;
+        const rotSpeed = cfg.rotSpeed;
         let angleDiff = desiredAngle - en.angle;
         while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
         while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-        en.angle += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), ENEMY_ROT_SPEED);
+        en.angle += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), rotSpeed);
 
         if (wantsBoost && Math.abs(angleDiff) < Math.PI / 4) {
           en.vx += Math.cos(en.angle) * boostStrength;
@@ -1552,26 +1649,28 @@ export default function App() {
         } else {
           en.isMoving = false;
         }
-        en.fuel = Math.min(FUEL_MAX, fuel - fuelUsed + FUEL_RECHARGE);
+        en.fuel = Math.min(FUEL_MAX_TYPE, fuel - fuelUsed + FUEL_RECHARGE);
 
         // Enemy shooting
-        if (!en.isShielded && frameCountRef.current - (en.lastShot || 0) >= ENEMY_FIRE_RATE) {
+        const typeFireRate = ENEMY_FIRE_RATE * cfg.fireRateMult;
+        if (!en.isShielded && frameCountRef.current - (en.lastShot || 0) >= typeFireRate) {
           const angleToPlayer = Math.atan2(pdy, pdx);
           const anglePlayerToBH = Math.atan2(pbhdy, pbhdx);
           let aDiff = Math.abs(angleToPlayer - anglePlayerToBH);
           if (aDiff > Math.PI) aDiff = 2 * Math.PI - aDiff;
-          const fireThreshold = aDiff < Math.PI / 2 ? ENEMY_FIRE_RATE : ENEMY_FIRE_RATE * 1.5;
+          const fireThreshold = aDiff < Math.PI / 2 ? typeFireRate : typeFireRate * 1.5;
           if (frameCountRef.current - (en.lastShot || 0) >= fireThreshold) {
             en.lastShot = frameCountRef.current;
             playSound('enemyShoot');
+            const sz = SHIP_SIZE * cfg.sizeMult;
             bulletsRef.current.push({
               id: nextIdRef.current++,
-              x: en.x + Math.cos(en.angle) * SHIP_SIZE,
-              y: en.y + Math.sin(en.angle) * SHIP_SIZE,
+              x: en.x + Math.cos(en.angle) * sz,
+              y: en.y + Math.sin(en.angle) * sz,
               vx: Math.cos(en.angle) * (BULLET_SPEED * 0.7),
               vy: Math.sin(en.angle) * (BULLET_SPEED * 0.7),
               angle: en.angle, color: en.color,
-              life: BULLET_LIFETIME * 1.5,
+              life: 55,
               ownerId: en.id,
             });
           }
@@ -1609,7 +1708,7 @@ export default function App() {
           deadPlayers: Array.from(deadPlayersRef.current),
           enemies: enemiesRef.current.map(serializeEntity),
           bullets: bulletsRef.current.map(serializeBullet),
-          blackHole: { x: bh.x, y: bh.y, vx: bh.vx, vy: bh.vy },
+          blackHole: { x: bh.x, y: bh.y, vx: bh.vx, vy: bh.vy, radius: bh.radius },
           scores: scoresRef.current,
           lives: livesRef.current,
           gameOver: gameOverRef.current,

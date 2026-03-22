@@ -13,6 +13,7 @@ export interface SerializedEntity {
   fuel?: number;
   lastHitBy?: number;
   respawnTimer?: number;
+  enemyType?: string;
 }
 
 export interface SerializedFloatingText {
@@ -35,7 +36,7 @@ export interface GameStateMsg {
   deadPlayers: number[];
   enemies: SerializedEntity[];
   bullets: SerializedBullet[];
-  blackHole: { x: number; y: number; vx: number; vy: number };
+  blackHole: { x: number; y: number; vx: number; vy: number; radius: number };
   scores: number[];
   lives: number[];
   gameOver: boolean;
@@ -127,6 +128,7 @@ export function serializeEntity(e: SerializedEntity): SerializedEntity {
   if (e.fuel !== undefined) s.fuel = r(e.fuel);
   if (e.lastHitBy !== undefined) s.lastHitBy = e.lastHitBy;
   if (e.respawnTimer) s.respawnTimer = e.respawnTimer;
+  if (e.enemyType) s.enemyType = e.enemyType;
   return s;
 }
 
