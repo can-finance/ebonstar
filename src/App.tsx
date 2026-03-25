@@ -1731,7 +1731,7 @@ export default function App() {
 
   return (
     <div className={`relative w-full min-h-screen bg-black font-mono text-white select-none ${gameStarted && !gameOver ? 'overflow-hidden h-screen' : 'overflow-y-auto'}`}>
-      <canvas ref={canvasRef} className="block w-full h-full" />
+      <canvas ref={canvasRef} className={`block w-full h-full ${!gameStarted || gameOver ? 'hidden' : ''}`} />
 
       {/* HUD */}
       {gameStarted && (
@@ -1764,7 +1764,7 @@ export default function App() {
 
       {/* Main Menu */}
       {gameMode === 'menu' && !gameStarted && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10">
+        <div className="flex flex-col items-center justify-center min-h-screen bg-black py-8 z-10">
           <h1 className="text-6xl mb-8 text-[#00ff00] animate-pulse">GRAVITY GRID</h1>
           <div className="text-center mb-8 space-y-2 text-gray-400">
             <p className="text-[#00ff00]">P1: W/A/S/D or ARROWS to Move, SPACE to Shoot</p>
@@ -1810,7 +1810,7 @@ export default function App() {
 
       {/* Host Lobby */}
       {gameMode === 'lobby_host' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10">
+        <div className="flex flex-col items-center justify-center min-h-screen bg-black py-8 z-10">
           <h2 className="text-4xl mb-6 text-[#ff8800]">HOSTING GAME</h2>
           {roomCode ? (
             <>
@@ -1837,7 +1837,7 @@ export default function App() {
           ) : !networkError ? (
             <>
               <p className="text-xl text-gray-400 mb-2">Connecting to server...</p>
-              <p className="text-sm text-gray-600 mb-6">First connection may take up to 30s if server is sleeping</p>
+              <p className="text-sm text-gray-600 mb-6">First connection may take up to 60 seconds if server is sleeping</p>
               <button onClick={backToMenu} className="px-8 py-4 border-4 border-red-500 text-red-500 text-2xl hover:bg-red-500 hover:text-black transition-colors">
                 CANCEL
               </button>
@@ -1855,7 +1855,7 @@ export default function App() {
 
       {/* Join Lobby — Browse available games */}
       {gameMode === 'lobby_client' && !gameStarted && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10">
+        <div className="flex flex-col items-center justify-center min-h-screen bg-black py-8 z-10">
           <h2 className="text-4xl mb-6 text-[#aa44ff]">JOIN GAME</h2>
           {!clientRef.current ? (
             <>
