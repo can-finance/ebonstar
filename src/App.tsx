@@ -475,27 +475,23 @@ export default function App() {
   const nextIdRef = useRef(1);
   const floatingTextsRef = useRef<FloatingText[]>([]);
 
-  // Viewport scaling — maps fixed world coords to canvas pixels with letterboxing
-  const viewportRef = useRef({ scale: 1, offsetX: 0, offsetY: 0 });
+  // Viewport scaling — maps fixed world coords to canvas pixels (stretch to fill)
+  const viewportRef = useRef({ scaleX: 1, scaleY: 1 });
   const updateViewport = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    const scaleX = canvas.width / WORLD_W;
-    const scaleY = canvas.height / WORLD_H;
-    const scale = Math.min(scaleX, scaleY);
     viewportRef.current = {
-      scale,
-      offsetX: (canvas.width - WORLD_W * scale) / 2,
-      offsetY: (canvas.height - WORLD_H * scale) / 2,
+      scaleX: canvas.width / WORLD_W,
+      scaleY: canvas.height / WORLD_H,
     };
   };
 
   // Convert screen coordinates (touch/click) to world coordinates
   const screenToWorld = (sx: number, sy: number): [number, number] => {
-    const { scale, offsetX, offsetY } = viewportRef.current;
-    return [(sx - offsetX) / scale, (sy - offsetY) / scale];
+    const { scaleX, scaleY } = viewportRef.current;
+    return [sx / scaleX, sy / scaleY];
   };
 
   // Mobile touch controls
@@ -972,16 +968,15 @@ export default function App() {
       const ctx = canvas?.getContext('2d');
       if (!canvas || !ctx) return;
 
-      const { scale, offsetX, offsetY } = viewportRef.current;
+      const { scaleX, scaleY } = viewportRef.current;
 
-      // Clear full canvas (including letterbox bars)
-      ctx.fillStyle = '#111';
+      // Clear full canvas
+      ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Begin world-space rendering
+      // Begin world-space rendering (stretch to fill)
       ctx.save();
-      ctx.translate(offsetX, offsetY);
-      ctx.scale(scale, scale);
+      ctx.scale(scaleX, scaleY);
 
       // World background
       ctx.fillStyle = '#000';
@@ -1735,7 +1730,7 @@ export default function App() {
   };
 
   return (
-    <div className="relative w-full h-screen bg-black overflow-hidden font-mono text-white select-none">
+    <div className={`relative w-full min-h-screen bg-black font-mono text-white select-none ${gameStarted && !gameOver ? 'overflow-hidden h-screen' : 'overflow-y-auto'}`}>
       <canvas ref={canvasRef} className="block w-full h-full" />
 
       {/* HUD */}
