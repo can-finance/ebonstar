@@ -111,6 +111,7 @@ export class ClientConnection {
         y: lerp(this.prevState.blackHole.y, this.currState.blackHole.y),
         vx: this.currState.blackHole.vx,
         vy: this.currState.blackHole.vy,
+        radius: lerp(this.prevState.blackHole.radius, this.currState.blackHole.radius),
       },
     };
   }

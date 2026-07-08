@@ -28,7 +28,6 @@ const ENEMY_FIRE_RATE = 280;
 const BLACK_HOLE_SPEED = 0.3;
 const MAX_LIVES = 3;
 const NET_SEND_INTERVAL = 3; // Send state every 3rd tick (20Hz)
-const RELAY_PORT = 3001;
 
 // Fixed world size — game logic always runs in this coordinate space
 const WORLD_W = 1920;
@@ -37,6 +36,9 @@ const WORLD_H = 1080;
 // Player IDs for up to 4 players
 const PLAYER_IDS = new Set(PLAYER_ID_LIST);
 const PLAYER_COLORS = ['#00ff00', '#00aaff', '#ff8800', '#aa44ff'];
+
+// Shared layout for full-screen menu/lobby screens (in-flow so they can scroll on short viewports)
+const MENU_SCREEN_CLASS = 'flex flex-col items-center justify-center min-h-screen py-8';
 
 // Control schemes (local keyboard: up to 2 players)
 const CONTROLS = [
@@ -503,7 +505,13 @@ export default function App() {
 
   const getRelayUrl = () => {
     const loc = window.location;
-    const isLocal = loc.hostname === 'localhost' || loc.hostname === '127.0.0.1' || /^(192\.|10\.|172\.)/.test(loc.hostname);
+    const isLocal =
+      import.meta.env.DEV || // served by the Vite dev server — the /relay proxy always exists
+      loc.hostname === 'localhost' ||
+      loc.hostname === '127.0.0.1' ||
+      !loc.hostname.includes('.') || // bare machine name, e.g. http://DESKTOP-ABC:3000
+      loc.hostname.endsWith('.local') || // mDNS, e.g. http://desktop-abc.local:3000
+      /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(loc.hostname); // private IPv4 ranges
     if (isLocal) {
       // Local dev — use Vite proxy path
       return `ws://${loc.hostname || 'localhost'}:${loc.port || '3000'}/relay`;
@@ -581,10 +589,11 @@ export default function App() {
   const checkServerThen = (callback: () => void) => {
     setNetworkError('');
     const ws = new WebSocket(getRelayUrl());
+    // 60s budget: Render free-tier cold starts can take this long (must match the lobby "up to 60 seconds" text)
     const timeout = setTimeout(() => {
       try { ws.close(); } catch {}
       setNetworkError('Server not found — it may be waking up, try again in a few seconds');
-    }, 15000);
+    }, 60000);
     ws.onopen = () => {
       clearTimeout(timeout);
       ws.close();
@@ -1729,9 +1738,12 @@ export default function App() {
     return 'TIE GAME!';
   };
 
+  const inGame = gameStarted && !gameOver;
+
   return (
-    <div className={`relative w-full min-h-screen bg-black font-mono text-white select-none ${gameStarted && !gameOver ? 'overflow-hidden h-screen' : 'overflow-y-auto'}`}>
-      <canvas ref={canvasRef} className={`block w-full h-full ${!gameStarted || gameOver ? 'hidden' : ''}`} />
+    <div className={`relative w-full min-h-screen bg-black font-mono text-white select-none ${inGame ? 'overflow-hidden h-screen' : 'overflow-y-auto'}`}>
+      {/* Canvas stays visible during game over so the frozen final frame shows under the overlay */}
+      <canvas ref={canvasRef} className={`block w-full h-full ${!gameStarted ? 'hidden' : ''}`} />
 
       {/* HUD */}
       {gameStarted && (
@@ -1764,7 +1776,7 @@ export default function App() {
 
       {/* Main Menu */}
       {gameMode === 'menu' && !gameStarted && (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-black py-8 z-10">
+        <div className={MENU_SCREEN_CLASS}>
           <h1 className="text-6xl mb-8 text-[#00ff00] animate-pulse">GRAVITY GRID</h1>
           <div className="text-center mb-8 space-y-2 text-gray-400">
             <p className="text-[#00ff00]">P1: W/A/S/D or ARROWS to Move, SPACE to Shoot</p>
@@ -1810,7 +1822,7 @@ export default function App() {
 
       {/* Host Lobby */}
       {gameMode === 'lobby_host' && (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-black py-8 z-10">
+        <div className={MENU_SCREEN_CLASS}>
           <h2 className="text-4xl mb-6 text-[#ff8800]">HOSTING GAME</h2>
           {roomCode ? (
             <>
@@ -1855,7 +1867,7 @@ export default function App() {
 
       {/* Join Lobby — Browse available games */}
       {gameMode === 'lobby_client' && !gameStarted && (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-black py-8 z-10">
+        <div className={MENU_SCREEN_CLASS}>
           <h2 className="text-4xl mb-6 text-[#aa44ff]">JOIN GAME</h2>
           {!clientRef.current ? (
             <>
@@ -1903,7 +1915,8 @@ export default function App() {
 
       {/* Pause */}
       {isPaused && networkRoleRef.current !== 'client' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-30">
+        <div className="absolute inset-0 overflow-y-auto bg-black/60 backdrop-blur-sm z-30">
+          <div className="min-h-full flex flex-col items-center justify-center py-8">
           <h2 className="text-6xl mb-8 text-[#00ff00]">PAUSED</h2>
           <div className="flex flex-col gap-4">
             <button onClick={() => setIsPaused(false)} className="px-8 py-4 border-4 border-[#00ff00] text-[#00ff00] text-2xl hover:bg-[#00ff00] hover:text-black transition-colors">
@@ -1917,12 +1930,14 @@ export default function App() {
             </button>
           </div>
           <div className="mt-8 text-gray-400">Press ESC to Resume</div>
+          </div>
         </div>
       )}
 
       {/* Game Over */}
       {gameOver && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-900/40 backdrop-blur-sm z-20">
+        <div className="absolute inset-0 overflow-y-auto bg-red-900/40 backdrop-blur-sm z-20">
+          <div className="min-h-full flex flex-col items-center justify-center py-8">
           <h2 className="text-8xl mb-4 text-white font-bold">GAME OVER</h2>
           {playerCount === 1 ? (
             <div className="text-4xl mb-8">FINAL SCORE: {scores[0] || 0}</div>
@@ -1943,10 +1958,11 @@ export default function App() {
           >
             BACK TO MENU
           </button>
+          </div>
         </div>
       )}
 
-      <div className="absolute bottom-4 right-4 text-xs text-gray-500">
+      <div className="absolute bottom-4 right-4 text-xs text-gray-500 pointer-events-none">
         8-BIT KINETIC SHOOTER V2.0
       </div>
     </div>
