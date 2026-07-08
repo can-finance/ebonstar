@@ -24,7 +24,7 @@ export default defineConfig(() => {
       },
       proxy: {
         '/relay': {
-          target: 'ws://localhost:3001',
+          target: process.env.RELAY_WS_TARGET || 'ws://localhost:3001',
           ws: true,
           rewriteWsOrigin: true,
         },

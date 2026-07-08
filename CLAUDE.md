@@ -19,17 +19,20 @@ src/
     host.ts        — HostConnection: WebSocket host that relays state to clients
     client.ts      — ClientConnection: WebSocket client that sends input to host
 server/
-  relay.ts         — WebSocket relay server for multiplayer room management
+  relay.js         — WebSocket relay server for multiplayer room management
+  package.json     — Relay's own manifest (just `ws`) — used by the dev container and Render deploys
 ```
 
 ## Dev Environment
-- Node.js runs via WSL (Ubuntu), not native Windows
-- Dev server: `cd <project-root> && npm run dev`
-- Relay server: `node server/relay.js` (runs on port 3001, proxied through Vite at `/relay`)
-- Vite config uses `watch: { usePolling: true }` for HMR over the `/mnt/c/` mount
-- WSL uses mirrored networking (`~/.wslconfig`) so LAN devices can connect
-- Windows Firewall rules added for ports 3000 and 3001 inbound
-- Preview launch config in `.claude/launch.json` wraps through WSL
+- Dev server and relay server each run in their own Docker container: `web` builds from the root `Dockerfile.dev` (full frontend deps), `relay` builds from `server/Dockerfile.dev` (just `ws`, matching what Render runs in production)
+- `node_modules` lives in anonymous Docker volumes, not on the host filesystem (keeps it out of the OneDrive-synced project folder)
+- Start both: `docker compose up` (or `docker compose up web` — `web` depends on `relay`)
+- **Dependency changes**: each container runs `npm install` against the bind-mounted manifest on every start, so after editing `package.json` just restart the containers (`docker compose restart` or re-run `up`); no image rebuild needed. Lockfile updates land on the host via the bind mount.
+- The project root is bind-mounted into the `web` container at `/workspace` (and `server/` into `relay`) for live edits; Vite's `watch: { usePolling: true }` handles HMR across the bind mount
+- The `web` container reaches the `relay` container via Docker's internal DNS (`ws://relay:3001`), set via the `RELAY_WS_TARGET` env var in `docker-compose.yml` and read by `vite.config.ts`'s `/relay` proxy target
+- Host npm is broken (`Cannot find module '@npmcli/config'`) — run one-off npm commands in a container instead: `docker run --rm -v "C:/Users/JamesThai/OneDrive/Claude/ebonstar:/w" -w /w node:22-alpine npm <cmd>`
+- Windows Firewall rules for ports 3000 and 3001 inbound (verified: plain any-program port rules) let LAN devices reach the containers through Docker's port mapping
+- Preview launch config in `.claude/launch.json` runs `docker compose up` (single config; starts both services)
 
 ## Architecture
 
@@ -47,7 +50,7 @@ server/
 ### Networking (Host-Client Model)
 - Host runs the full game loop and broadcasts state at 20Hz (`NET_SEND_INTERVAL = 3`)
 - Clients send input only (left/right/thrust/fire) and render interpolated state
-- Relay server (`server/relay.ts`) manages rooms — hosts create, clients browse and join
+- Relay server (`server/relay.js`) manages rooms — hosts create, clients browse and join
 - Room codes are 4 random uppercase letters
 - Player IDs: P1=0, P2=-1, P3=-2, P4=-3 (negative to avoid collision with enemy IDs starting at 1)
 - Vite proxies `/relay` WebSocket to port 3001 so everything goes through one port
@@ -78,34 +81,20 @@ server/
 - **Targeting**: each enemy targets the nearest alive player
 - **Movement priorities**: 1) Flee black hole if too close, 2) Steer away in danger zone, 3) Strategically position on opposite side of target from black hole to push them toward it
 - **Turning**: enemies rotate gradually (0.05 rad/frame) and only boost when facing within ~45° of target direction
-- **Fuel system**: 150 fuel, recharges at 0.2/frame. Fleeing costs 3/frame, so sustained pressure near the black hole depletes their fuel and they can be pushed in
+- **Fuel system**: boost fuel (capacity per enemy type in `ENEMY_TYPE_CONFIG`) drains fastest while fleeing and recharges slowly, so sustained pressure near the black hole depletes their fuel and they can be pushed in
 - **Smart shooting**: enemies fire more eagerly when their shot would push the target toward the black hole
 
 ### Physics
 - Gravity: inverse-square law with smoothing (`GRAVITY_STRENGTH / (distSq + 1000)`)
 - Friction: 0.96 velocity multiplier per tick
-- Explicit max speed cap (`PLAYER_MAX_SPEED = 2.2`) — top speed is independent of acceleration
+- Explicit max speed cap (`PLAYER_MAX_SPEED`) — top speed is independent of acceleration
 - Bullets affected by gravity at 50% strength
 - All entities bounce off world edges
 - Bullet hits push entities proportional to bullet velocity
 - Player spawn positions are adjusted away from the black hole if too close
 
 ## Key Constants for Tuning
-| Constant | Value | Purpose |
-|---|---|---|
-| WORLD_W / WORLD_H | 1920 / 1080 | Fixed game world dimensions |
-| GRAVITY_STRENGTH | 800 | Black hole pull force |
-| PLAYER_ACCEL | 0.07 | Player thrust per tick |
-| PLAYER_MAX_SPEED | 2.2 | Max velocity magnitude |
-| PLAYER_ROT_SPEED | 0.05 | Player rotation rad/tick |
-| BULLET_SPEED | 5 | Player bullet velocity |
-| FRICTION | 0.96 | Velocity decay per tick |
-| ENEMY_FIRE_RATE | 280 | Ticks between enemy shots |
-| ENEMY_SPAWN_RATE | 180 | Ticks between enemy spawns |
-| FUEL_MAX | 150 | Enemy boost fuel capacity |
-| FUEL_RECHARGE | 0.2 | Enemy fuel recovery per tick |
-| RESPAWN_DELAY | 300 | Ticks before respawn (5 seconds) |
-| NET_SEND_INTERVAL | 3 | Ticks between network state broadcasts |
+Gameplay tuning constants (gravity, speeds, fire/spawn rates, fuel, respawn) live at the top of `src/App.tsx` — read them there rather than trusting docs; per-enemy-type overrides are in `ENEMY_TYPE_CONFIG`.
 
 ## Deployment
 - **Static game client**: GitHub Pages (built with `npm run build`)

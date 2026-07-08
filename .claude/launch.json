@@ -3,15 +3,9 @@
   "configurations": [
     {
       "name": "dev",
-      "runtimeExecutable": "wsl.exe",
-      "runtimeArgs": ["-e", "bash", "-c", "source ~/.nvm/nvm.sh && cd \"$(wslpath -a .)\" && npm run dev"],
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up"],
       "port": 3000
-    },
-    {
-      "name": "relay",
-      "runtimeExecutable": "wsl.exe",
-      "runtimeArgs": ["-e", "bash", "-c", "source ~/.nvm/nvm.sh && cd \"$(wslpath -a .)\" && npm run server"],
-      "port": 3001
     }
   ]
 }
